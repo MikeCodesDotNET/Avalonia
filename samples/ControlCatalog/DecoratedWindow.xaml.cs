@@ -11,7 +11,7 @@ namespace ControlCatalog
         public DecoratedWindow()
         {
             this.InitializeComponent();
-            this.AttachDevTools();
+            //this.AttachDevTools();
         }
 
         void SetupSide(string name, StandardCursorType cursor, WindowEdge edge)

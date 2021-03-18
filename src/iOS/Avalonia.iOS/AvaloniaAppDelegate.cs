@@ -21,13 +21,14 @@ namespace Avalonia.iOS
             var lifetime = new Lifetime();
             builder.AfterSetup(_ =>
             {
-                Window = new UIWindow();
+                Window = new UIWindow(UIScreen.MainScreen.Bounds);
                 var view = new AvaloniaView();
                 lifetime.View = view;
                 Window.RootViewController = new UIViewController
                 {
                     View = view
                 };
+
             });
             
             builder.SetupWithLifetime(lifetime);

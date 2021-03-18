@@ -21,12 +21,12 @@ namespace Avalonia.iOS
         
         public static void Register()
         {
-            GlFeature ??= new EaglFeature();
+           // GlFeature ??= new EaglFeature();
             Timer ??= new DisplayLinkTimer();
             var keyboard = new KeyboardDevice();
             var softKeyboard = new SoftKeyboardHelper();
             AvaloniaLocator.CurrentMutable
-                .Bind<IPlatformOpenGlInterface>().ToConstant(GlFeature)
+                //.Bind<IPlatformOpenGlInterface>().ToConstant(GlFeature)
                 .Bind<ICursorFactory>().ToConstant(new CursorFactoryStub())
                 .Bind<IWindowingPlatform>().ToConstant(new WindowingPlatformStub())
                 .Bind<IClipboard>().ToConstant(new ClipboardImpl())
@@ -36,7 +36,8 @@ namespace Avalonia.iOS
                 .Bind<IRenderLoop>().ToSingleton<RenderLoop>()
                 .Bind<IRenderTimer>().ToConstant(Timer)
                 .Bind<IPlatformThreadingInterface>().ToConstant(new PlatformThreadingInterface())
-                .Bind<IKeyboardDevice>().ToConstant(keyboard);
+                .Bind<IKeyboardDevice>().ToConstant(keyboard)
+                .Bind<IPlatformThemeProvider>().ToSingleton<PlatformThemeProvider>();
             keyboard.PropertyChanged += (_, changed) =>
             {
                 if (changed.PropertyName == nameof(KeyboardDevice.FocusedElement))

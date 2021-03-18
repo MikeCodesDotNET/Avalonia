@@ -40,6 +40,9 @@ namespace Avalonia.iOS
             );
             _topLevelImpl.Surfaces = new[] {new EaglLayerSurface(l)};
             MultipleTouchEnabled = true;
+
+            //Ensuring that we can then safely implement the UIAccessibility APIs
+            base.IsAccessibilityElement = false;
         }
 
         internal class TopLevelImpl : ITopLevelImpl
@@ -130,10 +133,35 @@ namespace Avalonia.iOS
             base.LayoutSubviews();
         }
 
+        public override void TraitCollectionDidChange(UITraitCollection previousTraitCollection)
+        {
+            var platformThemeProvider = AvaloniaLocator.Current.GetService<IPlatformThemeProvider>() as PlatformThemeProvider;
+            base.TraitCollectionDidChange(previousTraitCollection);
+            if (TraitCollection.UserInterfaceStyle != previousTraitCollection.UserInterfaceStyle)
+            {
+                switch (TraitCollection.UserInterfaceStyle)
+                {
+                    case UIUserInterfaceStyle.Dark:
+                        platformThemeProvider.SetTheme(PlatformTheme.Dark);
+                        break;
+                    case UIUserInterfaceStyle.Light:
+                        platformThemeProvider.SetTheme(PlatformTheme.Light);
+                        break;
+                    case UIUserInterfaceStyle.Unspecified:
+                        platformThemeProvider.SetTheme(PlatformTheme.Unspecified);
+                        break;
+                }               
+            }
+        }
+
         public Control Content
         {
             get => (Control)_topLevel.Content;
             set => _topLevel.Content = value;
         }
-    }
+
+     
+
+      
+    }   
 }

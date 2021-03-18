@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Markup.Xaml.Styling;
+using Avalonia.Platform;
 using Avalonia.Styling;
 
 namespace ControlCatalog
@@ -79,10 +80,29 @@ namespace ControlCatalog
             DataGridDefault
         };
 
+        private void ChangeTheme(PlatformTheme theme)
+        {
+            switch (theme)
+            {
+                case PlatformTheme.Dark:
+                    Styles.Insert(0, FluentDark);
+                    break;
+                default:
+                    Styles.Insert(0, FluentLight);
+                    break;
+            }
+        }
+
         public override void Initialize()
         {
-            Styles.Insert(0, FluentLight);
+            var themeProvider = AvaloniaLocator.Current.GetService<IPlatformThemeProvider>();
+            if(themeProvider.SelectedTheme == PlatformTheme.Light)
+                Styles.Insert(0, FluentLight);
+            else
+                Styles.Insert(0, FluentDark);
 
+
+            themeProvider.ThemeDidChange += (s, e) => ChangeTheme(e.NewTheme);
             AvaloniaXamlLoader.Load(this);
         }
 
