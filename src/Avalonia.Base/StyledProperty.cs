@@ -9,8 +9,34 @@ using static Avalonia.StyledPropertyNonGenericHelper;
 namespace Avalonia
 {
     /// <summary>
-    /// A styled avalonia property.
+    /// Represents a styled property that supports styling, theming, animations, bindings, and
+    /// priority-based value resolution.
     /// </summary>
+    /// <typeparam name="TValue">The type of the property value.</typeparam>
+    /// <remarks>
+    /// <para>
+    /// Styled properties are the primary property type in Avalonia. Unlike direct properties, styled
+    /// properties maintain multiple concurrent values at different priority levels and resolve the
+    /// effective value based on priority. Value sources include (from highest to lowest priority):
+    /// </para>
+    /// <list type="number">
+    /// <item><description>Animations - Active animations override all other sources</description></item>
+    /// <item><description>Local values - Set via code or XAML attributes</description></item>
+    /// <item><description>Template bindings - Set by control templates</description></item>
+    /// <item><description>Styles - Applied by CSS-like style selectors</description></item>
+    /// <item><description>Inherited values - Inherited from parent objects if <see cref="AvaloniaProperty.Inherits"/> is true</description></item>
+    /// <item><description>Default value - Specified in metadata</description></item>
+    /// </list>
+    /// <para>
+    /// Styled properties can be registered using <see cref="AvaloniaProperty.Register{TOwner, TValue}"/>,
+    /// added to additional types via <see cref="AddOwner{TOwner}"/>, and have their metadata overridden
+    /// per type using <see cref="OverrideMetadata{T}"/>.
+    /// </para>
+    /// </remarks>
+    /// <seealso cref="AvaloniaProperty"/>
+    /// <seealso cref="DirectProperty{TOwner, TValue}"/>
+    /// <seealso cref="AttachedProperty{T}"/>
+    /// <seealso cref="StyledPropertyMetadata{TValue}"/>
     public class StyledProperty<TValue> : AvaloniaProperty<TValue>, IStyledPropertyAccessor
     {
         // For performance, cache the default value if there's only one (mostly for AvaloniaObject.GetValue()),
@@ -52,15 +78,54 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// A method which returns "false" for values that are never valid for this property.
+        /// Gets the validation callback that determines whether a value is valid for this property.
         /// </summary>
+        /// <value>
+        /// A function that returns <see langword="false"/> for values that should never be accepted,
+        /// or <see langword="null"/> if no validation is performed.
+        /// </value>
+        /// <remarks>
+        /// <para>
+        /// This validator is set during property registration and cannot be changed afterward. It provides
+        /// permanent validation that applies regardless of metadata overrides. If validation fails, the
+        /// property system rejects the value.
+        /// </para>
+        /// <para>
+        /// This is distinct from coercion (in metadata), which adjusts values after validation. Validators
+        /// enforce hard constraints like "Width must be non-negative," while coercion might clamp values
+        /// to specific ranges.
+        /// </para>
+        /// </remarks>
         public Func<TValue, bool>? ValidateValue { get; }
 
         /// <summary>
-        /// Registers the property on another type.
+        /// Registers this property on an additional owner type, optionally with different metadata.
         /// </summary>
-        /// <typeparam name="TOwner">The type of the additional owner.</typeparam>
-        /// <returns>The property.</returns>        
+        /// <typeparam name="TOwner">
+        /// The additional owner type. Must be <see cref="AvaloniaObject"/> or a derived type.
+        /// </typeparam>
+        /// <param name="metadata">
+        /// Optional metadata override for the new owner type. If <see langword="null"/>, the property
+        /// uses metadata from the inheritance hierarchy.
+        /// </param>
+        /// <returns>
+        /// This property instance, enabling fluent method chaining.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// AddOwner allows a property originally registered on one type to be recognized on other types.
+        /// All registrations share the same property identity and <see cref="AvaloniaProperty.Id"/>.
+        /// This is commonly used when a derived type needs different default values or change callbacks.
+        /// </para>
+        /// <para>
+        /// If <paramref name="metadata"/> is provided, it applies specifically to <typeparamref name="TOwner"/>
+        /// and its derived types. Metadata resolution walks the type hierarchy, so derived types without
+        /// their own metadata override inherit from their nearest ancestor with metadata.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if the property is already registered on <typeparamref name="TOwner"/>.
+        /// </exception>
         public StyledProperty<TValue> AddOwner<TOwner>(StyledPropertyMetadata<TValue>? metadata = null) where TOwner : AvaloniaObject
         {
             AvaloniaPropertyRegistry.Instance.Register(typeof(TOwner), this);
@@ -72,6 +137,36 @@ namespace Avalonia
             return this;
         }
 
+        /// <summary>
+        /// Applies coercion to a property value using the metadata for the specified instance.
+        /// </summary>
+        /// <param name="instance">
+        /// The object whose metadata determines the coercion callback. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="baseValue">
+        /// The value to coerce.
+        /// </param>
+        /// <returns>
+        /// The coerced value, or <paramref name="baseValue"/> unchanged if no coercion callback is defined.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// Coercion allows metadata to constrain or adjust property values after validation but before
+        /// the value is stored. Common uses include clamping numeric values to ranges or ensuring
+        /// consistency with other properties.
+        /// </para>
+        /// <para>
+        /// The coercion callback is retrieved from metadata for the runtime type of <paramref name="instance"/>.
+        /// Derived types can provide different coercion logic via <see cref="OverrideMetadata{T}"/>.
+        /// </para>
+        /// <para>
+        /// Coercion runs after <see cref="ValidateValue"/> but before the value is committed. If the
+        /// coerced value fails validation, the property system rejects it.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="instance"/> is <see langword="null"/>.
+        /// </exception>
         public TValue CoerceValue(AvaloniaObject instance, TValue baseValue)
         {
             var metadata = GetMetadata(instance);

@@ -10,13 +10,49 @@ using Avalonia.Utilities;
 namespace Avalonia
 {
     /// <summary>
-    /// Base class for avalonia properties.
+    /// Base class for all Avalonia property descriptors, including styled properties, direct properties,
+    /// and attached properties.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Avalonia properties are property descriptors that define metadata, ownership, and value resolution
+    /// for properties on <see cref="AvaloniaObject"/> instances. Unlike CLR properties, Avalonia properties
+    /// support features such as:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>Multiple value sources with priority-based resolution (styles, bindings, animations, local values)</description></item>
+    /// <item><description>Property value inheritance through object trees</description></item>
+    /// <item><description>Change notification and validation</description></item>
+    /// <item><description>Metadata that can be overridden per type</description></item>
+    /// <item><description>Attached properties that can be set on any <see cref="AvaloniaObject"/></description></item>
+    /// </list>
+    /// <para>
+    /// This is an abstract base class. Use <see cref="StyledProperty{T}"/>, <see cref="DirectProperty{TOwner, TValue}"/>,
+    /// or <see cref="AttachedProperty{T}"/> to register concrete properties.
+    /// </para>
+    /// </remarks>
+    /// <seealso cref="AvaloniaObject"/>
+    /// <seealso cref="StyledProperty{T}"/>
+    /// <seealso cref="DirectProperty{TOwner, TValue}"/>
+    /// <seealso cref="AttachedProperty{T}"/>
     public abstract class AvaloniaProperty : IEquatable<AvaloniaProperty>, IPropertyInfo
     {
         /// <summary>
-        /// Represents an unset property value.
+        /// Sentinel value representing an unset property value.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This special marker value indicates that a property has no assigned value at a particular
+        /// priority level. It is distinct from <see langword="null"/>, which is a valid property value.
+        /// </para>
+        /// <para>
+        /// When setting a property to <see cref="UnsetValue"/>, the property system clears any value
+        /// at that priority and re-evaluates the effective value from remaining sources.
+        /// </para>
+        /// <para>
+        /// Do not cache or compare this value using <c>==</c>. Use <c>ReferenceEquals</c> or identity checks.
+        /// </para>
+        /// </remarks>
         public static readonly object UnsetValue = new UnsetValueType();
 
         private static int s_nextId;
@@ -102,36 +138,103 @@ namespace Avalonia
         /// <summary>
         /// Gets the name of the property.
         /// </summary>
+        /// <value>
+        /// The property name, which must be unique per owner type. Does not include periods.
+        /// </value>
+        /// <remarks>
+        /// The name is used for debugging, diagnostics, and when looking up properties via
+        /// <see cref="AvaloniaPropertyRegistry"/>. For attached properties, this is the name
+        /// without the owner type prefix.
+        /// </remarks>
         public string Name { get; }
 
         /// <summary>
-        /// Gets the type of the property's value.
+        /// Gets the CLR type of the property's value.
         /// </summary>
+        /// <value>
+        /// The <see cref="Type"/> of values this property can hold. Never <see langword="null"/>.
+        /// </value>
+        /// <remarks>
+        /// This is the declared type of the property. At runtime, values must be assignable to this type,
+        /// or the property system will reject them (for styled properties) or throw (for direct properties).
+        /// For generic properties like <see cref="StyledProperty{T}"/>, this returns <c>typeof(T)</c>.
+        /// </remarks>
         public Type PropertyType { get; }
 
         /// <summary>
-        /// Gets the type of the class that registered the property.
+        /// Gets the type that originally registered this property.
         /// </summary>
+        /// <value>
+        /// The owner type that registered the property. This may differ from the type that declares the
+        /// property if the property is added to additional types via AddOwner.
+        /// </value>
+        /// <remarks>
+        /// When a property is registered on multiple types using AddOwner, each registration shares the
+        /// same <see cref="Id"/> but may have a different <see cref="OwnerType"/>. The owner type determines
+        /// the default metadata lookup path.
+        /// </remarks>
         public Type OwnerType { get; }
 
         /// <summary>
-        /// Gets a value indicating whether the property inherits its value.
+        /// Gets a value indicating whether this property inherits its value from parent objects in the
+        /// inheritance tree.
         /// </summary>
+        /// <value>
+        /// <see langword="true"/> if the property value is inherited when not locally set;
+        /// otherwise <see langword="false"/>.
+        /// </value>
+        /// <remarks>
+        /// <para>
+        /// When <see langword="true"/>, if an object has no local value, binding, or style for this property,
+        /// the property system walks up the <see cref="AvaloniaObject.InheritanceParent"/> chain to find
+        /// the nearest ancestor with a set value.
+        /// </para>
+        /// <para>
+        /// Common inheritable properties include DataContext, FontFamily, and FlowDirection. Inheritance
+        /// only applies to styled properties; direct properties never inherit.
+        /// </para>
+        /// </remarks>
         public bool Inherits { get; private protected set; }
 
         /// <summary>
         /// Gets a value indicating whether this is an attached property.
         /// </summary>
+        /// <value>
+        /// <see langword="true"/> if this is an attached property; otherwise <see langword="false"/>.
+        /// </value>
+        /// <remarks>
+        /// Attached properties can be set on any <see cref="AvaloniaObject"/>, not just instances of the
+        /// owner type. They are typically accessed via static getter and setter methods, such as
+        /// <c>Grid.GetRow(element)</c> and <c>Grid.SetRow(element, value)</c>.
+        /// </remarks>
         public bool IsAttached { get; private protected set; }
 
         /// <summary>
         /// Gets a value indicating whether this is a direct property.
         /// </summary>
+        /// <value>
+        /// <see langword="true"/> if this is a direct property; otherwise <see langword="false"/>.
+        /// </value>
+        /// <remarks>
+        /// Direct properties wrap standard CLR properties and call their getters and setters directly.
+        /// Unlike styled properties, direct properties do not support styling, priority-based values,
+        /// or inheritance. They are optimized for performance and are typically used for properties
+        /// that change frequently or have non-trivial get/set logic.
+        /// </remarks>
         public bool IsDirect { get; private protected set; }
 
         /// <summary>
-        /// Gets a value indicating whether this is a readonly property.
+        /// Gets a value indicating whether this property is read-only.
         /// </summary>
+        /// <value>
+        /// <see langword="true"/> if the property is read-only; otherwise <see langword="false"/>.
+        /// </value>
+        /// <remarks>
+        /// Read-only properties cannot be set via <see cref="AvaloniaObject.SetValue(AvaloniaProperty, object, BindingPriority)"/>
+        /// or bound from external sources. For direct properties, this indicates the underlying CLR property
+        /// has no public setter. For styled properties, read-only properties are typically used internally
+        /// by the framework.
+        /// </remarks>
         public bool IsReadOnly { get; private protected set; }
 
         /// <summary>

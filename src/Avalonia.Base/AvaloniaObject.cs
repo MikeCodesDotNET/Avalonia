@@ -15,11 +15,30 @@ using Avalonia.Utilities;
 namespace Avalonia
 {
     /// <summary>
-    /// An object with <see cref="AvaloniaProperty"/> support.
+    /// Base class for objects that support Avalonia's property system, including styled properties,
+    /// direct properties, attached properties, property inheritance, data binding, and change notifications.
     /// </summary>
     /// <remarks>
-    /// This class is analogous to DependencyObject in WPF.
+    /// <para>
+    /// This class is analogous to DependencyObject in WPF. It provides the foundation for Avalonia's
+    /// property system, which includes:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>Styled properties that support styling, theming, and property value precedence</description></item>
+    /// <item><description>Direct properties that wrap CLR properties for binding and notifications</description></item>
+    /// <item><description>Attached properties that can be set on any AvaloniaObject</description></item>
+    /// <item><description>Property value inheritance through the inheritance tree</description></item>
+    /// <item><description>Data binding with multiple priority levels</description></item>
+    /// <item><description>Property change notifications via INotifyPropertyChanged</description></item>
+    /// </list>
+    /// <para>
+    /// All property operations must be performed on the UI thread. Use <see cref="CheckAccess"/> to
+    /// verify thread affinity or <see cref="VerifyAccess"/> to enforce it.
+    /// </para>
     /// </remarks>
+    /// <threadsafety>
+    /// This type is not thread-safe. All members must be accessed from the UI thread only.
+    /// </threadsafety>
     [DebuggerDisplay("{DebugDisplay}")]
     public class AvaloniaObject : IAvaloniaObjectDebug, INotifyPropertyChanged
     {
@@ -32,6 +51,12 @@ namespace Avalonia
         /// <summary>
         /// Initializes a new instance of the <see cref="AvaloniaObject"/> class.
         /// </summary>
+        /// <remarks>
+        /// Creates the internal property value store. Must be called from the UI thread.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if called from a thread other than the UI thread.
+        /// </exception>
         public AvaloniaObject()
         {
             VerifyAccess();
@@ -39,8 +64,20 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Raised when a <see cref="AvaloniaProperty"/> value changes on this object.
+        /// Raised when an <see cref="AvaloniaProperty"/> value changes on this object.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This event is raised for both effective value changes (changes visible to property consumers)
+        /// and intermediate value changes (such as changes to non-active binding priorities). Handlers
+        /// should check <see cref="AvaloniaPropertyChangedEventArgs.IsEffectiveValueChange"/> to determine
+        /// if the change affects the property's effective value.
+        /// </para>
+        /// <para>
+        /// This event is raised after the property value has been updated and after the
+        /// <see cref="OnPropertyChanged"/> virtual method has been invoked.
+        /// </para>
+        /// </remarks>
         public event EventHandler<AvaloniaPropertyChangedEventArgs>? PropertyChanged
         {
             add { _propertyChanged += value; }
@@ -48,8 +85,18 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Raised when a <see cref="AvaloniaProperty"/> value changes on this object.
+        /// Raised when an <see cref="AvaloniaProperty"/> value changes on this object. This is the
+        /// explicit implementation of <see cref="INotifyPropertyChanged.PropertyChanged"/>.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This event provides a lighter-weight notification using standard <see cref="PropertyChangedEventArgs"/>
+        /// instead of <see cref="AvaloniaPropertyChangedEventArgs"/>. Only effective value changes are reported.
+        /// </para>
+        /// <para>
+        /// Prefer the strongly-typed <see cref="PropertyChanged"/> event when working with Avalonia properties directly.
+        /// </para>
+        /// </remarks>
         event PropertyChangedEventHandler? INotifyPropertyChanged.PropertyChanged
         {
             add { _inpcChanged += value; }
@@ -57,12 +104,29 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets or sets the parent object that inherited <see cref="AvaloniaProperty"/> values
-        /// are inherited from.
+        /// Gets or sets the parent object from which inheritable <see cref="AvaloniaProperty"/> values
+        /// are inherited.
         /// </summary>
         /// <value>
-        /// The inheritance parent.
+        /// The inheritance parent, or <see langword="null"/> if this object has no inheritance parent.
         /// </value>
+        /// <remarks>
+        /// <para>
+        /// The inheritance parent determines where inheritable property values are resolved from when
+        /// not explicitly set on this object. This is typically the logical parent in the tree, but
+        /// can be set independently of the logical or visual tree structure.
+        /// </para>
+        /// <para>
+        /// When changed, all inheritable properties on this object and its inheritance children are
+        /// re-evaluated to reflect values from the new parent.
+        /// </para>
+        /// <para>
+        /// Must be accessed from the UI thread.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if accessed from a thread other than the UI thread.
+        /// </exception>
         protected internal AvaloniaObject? InheritanceParent
         {
             get
@@ -85,9 +149,20 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets or sets the value of a <see cref="AvaloniaProperty"/>.
+        /// Gets or sets the value of an <see cref="AvaloniaProperty"/> using indexer syntax.
         /// </summary>
-        /// <param name="property">The property.</param>
+        /// <param name="property">The property to get or set. Must not be <see langword="null"/>.</param>
+        /// <value>
+        /// The current effective value of the property, or <see langword="null"/> if the property
+        /// has no value set and the default value is <see langword="null"/>.
+        /// </value>
+        /// <remarks>
+        /// This indexer provides convenient syntax for property access. For typed access with better
+        /// performance, use the generic <see cref="GetValue{T}"/> and <see cref="SetValue{T}"/> overloads.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
         public object? this[AvaloniaProperty property]
         {
             get { return GetValue(property); }
@@ -95,9 +170,18 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets or sets a binding for a <see cref="AvaloniaProperty"/>.
+        /// Gets or sets a binding for an <see cref="AvaloniaProperty"/> using indexer syntax.
         /// </summary>
-        /// <param name="binding">The binding information.</param>
+        /// <param name="binding">
+        /// The binding descriptor containing the property and binding mode. Must not be <see langword="null"/>.
+        /// </param>
+        /// <value>
+        /// Getting returns a new <see cref="IndexerBinding"/> instance. Setting establishes the binding.
+        /// </value>
+        /// <remarks>
+        /// This indexer enables XAML binding syntax. It is rarely used in code; prefer
+        /// <see cref="Bind(AvaloniaProperty, IBinding)"/> for programmatic binding.
+        /// </remarks>
         public IBinding this[IndexerDescriptor binding]
         {
             get { return new IndexerBinding(this, binding.Property!, binding.Mode); }
@@ -110,20 +194,56 @@ namespace Avalonia
         internal string DebugDisplay => GetDebugDisplay(true);
 
         /// <summary>
-        /// Returns a value indicating whether the current thread is the UI thread.
+        /// Determines whether the calling thread has access to this object.
         /// </summary>
-        /// <returns>true if the current thread is the UI thread; otherwise false.</returns>
+        /// <returns>
+        /// <see langword="true"/> if the calling thread is the UI thread; otherwise <see langword="false"/>.
+        /// </returns>
+        /// <remarks>
+        /// All <see cref="AvaloniaObject"/> operations must be performed on the UI thread. Use this
+        /// method to check thread affinity before accessing properties or calling methods if needed.
+        /// To enforce thread affinity and throw an exception on violation, use <see cref="VerifyAccess"/> instead.
+        /// </remarks>
+        /// <seealso cref="VerifyAccess"/>
         public bool CheckAccess() => Dispatcher.UIThread.CheckAccess();
 
         /// <summary>
-        /// Checks that the current thread is the UI thread and throws if not.
+        /// Verifies that the calling thread has access to this object.
         /// </summary>
+        /// <remarks>
+        /// All <see cref="AvaloniaObject"/> operations must be performed on the UI thread. This method
+        /// enforces thread affinity by throwing an exception if called from any thread other than the UI thread.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if the calling thread is not the UI thread.
+        /// </exception>
+        /// <seealso cref="CheckAccess"/>
         public void VerifyAccess() => Dispatcher.UIThread.VerifyAccess();
 
         /// <summary>
-        /// Clears a <see cref="AvaloniaProperty"/>'s local value.
+        /// Clears the local value of an <see cref="AvaloniaProperty"/>, allowing lower-priority
+        /// values to take effect.
         /// </summary>
-        /// <param name="property">The property.</param>
+        /// <param name="property">
+        /// The property to clear. Must not be <see langword="null"/>.
+        /// </param>
+        /// <remarks>
+        /// <para>
+        /// This method removes the local value set via <see cref="SetValue(AvaloniaProperty, object, BindingPriority)"/>.
+        /// After clearing, the property will resolve its value from the next highest priority source,
+        /// such as styles, animations, inherited values, or the default value.
+        /// </para>
+        /// <para>
+        /// For styled properties, this clears all values at <see cref="BindingPriority.LocalValue"/> priority.
+        /// For direct properties, this resets the property to its unset value.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if called from a thread other than the UI thread.
+        /// </exception>
         public void ClearValue(AvaloniaProperty property)
         {
             ThrowHelper.ThrowIfNull(property, nameof(property));
@@ -132,9 +252,25 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Clears a <see cref="AvaloniaProperty"/>'s local value.
+        /// Clears the local value of an <see cref="AvaloniaProperty"/> with type information.
         /// </summary>
-        /// <param name="property">The property.</param>
+        /// <typeparam name="T">The property value type.</typeparam>
+        /// <param name="property">
+        /// The property to clear. Must not be <see langword="null"/>.
+        /// </param>
+        /// <remarks>
+        /// This is a typed overload of <see cref="ClearValue(AvaloniaProperty)"/> that dispatches
+        /// to the appropriate clear method based on the property type (styled or direct).
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if called from a thread other than the UI thread.
+        /// </exception>
+        /// <exception cref="NotSupportedException">
+        /// Thrown if the property is not a <see cref="StyledProperty{T}"/> or <see cref="DirectPropertyBase{T}"/>.
+        /// </exception>
         public void ClearValue<T>(AvaloniaProperty<T> property)
         {
             ThrowHelper.ThrowIfNull(property, nameof(property));
@@ -210,10 +346,25 @@ namespace Avalonia
         public sealed override int GetHashCode() => base.GetHashCode();
 
         /// <summary>
-        /// Gets a <see cref="AvaloniaProperty"/> value.
+        /// Gets the current effective value of an <see cref="AvaloniaProperty"/>.
         /// </summary>
-        /// <param name="property">The property.</param>
-        /// <returns>The value.</returns>
+        /// <param name="property">
+        /// The property to get. Must not be <see langword="null"/>.
+        /// </param>
+        /// <returns>
+        /// The current effective value of the property, which may come from local values, styles,
+        /// animations, inheritance, or the default value. Returns <see langword="null"/> if the
+        /// effective value is <see langword="null"/>.
+        /// </returns>
+        /// <remarks>
+        /// For styled properties, returns the value with the highest active priority. For direct
+        /// properties, invokes the property's getter. For better performance with known property types,
+        /// use the generic overloads <see cref="GetValue{T}(StyledProperty{T})"/> or
+        /// <see cref="GetValue{T}(DirectPropertyBase{T})"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
         public object? GetValue(AvaloniaProperty property)
         {
             ThrowHelper.ThrowIfNull(property, nameof(property));
@@ -225,11 +376,26 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets a <see cref="AvaloniaProperty"/> value.
+        /// Gets the current effective value of a <see cref="StyledProperty{T}"/>.
         /// </summary>
-        /// <typeparam name="T">The type of the property.</typeparam>
-        /// <param name="property">The property.</param>
-        /// <returns>The value.</returns>
+        /// <typeparam name="T">The property value type.</typeparam>
+        /// <param name="property">
+        /// The property to get. Must not be <see langword="null"/>.
+        /// </param>
+        /// <returns>
+        /// The current effective value from the highest active priority, which may be a local value,
+        /// style, animation, inherited value, or the default value.
+        /// </returns>
+        /// <remarks>
+        /// This generic overload provides better type safety and performance than the non-generic
+        /// <see cref="GetValue(AvaloniaProperty)"/> method.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if called from a thread other than the UI thread.
+        /// </exception>
         public T GetValue<T>(StyledProperty<T> property)
         {
             ThrowHelper.ThrowIfNull(property, nameof(property));
@@ -238,11 +404,25 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets a <see cref="AvaloniaProperty"/> value.
+        /// Gets the current value of a <see cref="DirectPropertyBase{T}"/> by invoking its getter.
         /// </summary>
-        /// <typeparam name="T">The type of the property.</typeparam>
-        /// <param name="property">The property.</param>
-        /// <returns>The value.</returns>
+        /// <typeparam name="T">The property value type.</typeparam>
+        /// <param name="property">
+        /// The property to get. Must not be <see langword="null"/>.
+        /// </param>
+        /// <returns>
+        /// The current value returned by the property's getter.
+        /// </returns>
+        /// <remarks>
+        /// Direct properties wrap CLR properties, so this method invokes the underlying getter.
+        /// The returned value reflects the current state of the backing field or computed value.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if called from a thread other than the UI thread.
+        /// </exception>
         public T GetValue<T>(DirectPropertyBase<T> property)
         {
             ThrowHelper.ThrowIfNull(property, nameof(property));
@@ -300,11 +480,33 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Sets a <see cref="AvaloniaProperty"/> value.
+        /// Sets the value of an <see cref="AvaloniaProperty"/> at a specified priority.
         /// </summary>
-        /// <param name="property">The property.</param>
-        /// <param name="value">The value.</param>
-        /// <param name="priority">The priority of the value.</param>
+        /// <param name="property">
+        /// The property to set. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="value">
+        /// The value to set. May be <see langword="null"/> if the property type is nullable.
+        /// </param>
+        /// <param name="priority">
+        /// The priority at which to set the value. Must be between <see cref="BindingPriority.Animation"/>
+        /// and <see cref="BindingPriority.LocalValue"/> (inclusive). Defaults to <see cref="BindingPriority.LocalValue"/>.
+        /// </param>
+        /// <returns>
+        /// An <see cref="IDisposable"/> that can be disposed to revert this value assignment, or
+        /// <see langword="null"/> if the property is a direct property.
+        /// </returns>
+        /// <remarks>
+        /// For styled properties, values are stored with priority and can be overridden by higher-priority
+        /// sources such as animations. For direct properties, the priority parameter is ignored and the
+        /// setter is invoked directly.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown if <paramref name="priority"/> is outside the valid range.
+        /// </exception>
         public IDisposable? SetValue(
             AvaloniaProperty property,
             object? value,
@@ -316,15 +518,47 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Sets a <see cref="AvaloniaProperty"/> value.
+        /// Sets the value of a <see cref="StyledProperty{T}"/> at a specified priority.
         /// </summary>
-        /// <typeparam name="T">The type of the property.</typeparam>
-        /// <param name="property">The property.</param>
-        /// <param name="value">The value.</param>
-        /// <param name="priority">The priority of the value.</param>
+        /// <typeparam name="T">The property value type.</typeparam>
+        /// <param name="property">
+        /// The property to set. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="value">
+        /// The value to set. May be <see cref="AvaloniaProperty.UnsetValue"/> to clear the value at
+        /// the specified priority, or <see langword="null"/> if T is nullable.
+        /// </param>
+        /// <param name="priority">
+        /// The priority at which to set the value. Must be between <see cref="BindingPriority.Animation"/>
+        /// and <see cref="BindingPriority.LocalValue"/> (inclusive). Defaults to <see cref="BindingPriority.LocalValue"/>.
+        /// </param>
         /// <returns>
-        /// An <see cref="IDisposable"/> if setting the property can be undone, otherwise null.
+        /// An <see cref="IDisposable"/> that, when disposed, removes this value from the specified priority,
+        /// or <see langword="null"/> if the value was <see cref="AvaloniaProperty.UnsetValue"/>.
         /// </returns>
+        /// <remarks>
+        /// <para>
+        /// Styled properties support multiple concurrent values at different priorities. The property's
+        /// effective value is determined by the highest active priority. Common priorities:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><description><see cref="BindingPriority.Animation"/> (highest) - Set by active animations</description></item>
+        /// <item><description><see cref="BindingPriority.LocalValue"/> - Set by code or XAML attributes</description></item>
+        /// <item><description><see cref="BindingPriority.Style"/> - Set by styles</description></item>
+        /// </list>
+        /// <para>
+        /// This method validates the value and raises property change notifications if the effective value changes.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown if <paramref name="priority"/> is outside the valid range.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if called from a thread other than the UI thread.
+        /// </exception>
         public IDisposable? SetValue<T>(
             StyledProperty<T> property,
             T value,
@@ -417,27 +651,73 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Binds a <see cref="AvaloniaProperty"/> to an <see cref="IBinding"/>.
+        /// Establishes a data binding between an <see cref="AvaloniaProperty"/> and an <see cref="IBinding"/> source.
         /// </summary>
-        /// <param name="property">The property.</param>
-        /// <param name="binding">The binding.</param>
+        /// <param name="property">
+        /// The target property to bind. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="binding">
+        /// The binding source that provides values. Must not be <see langword="null"/>.
+        /// </param>
         /// <returns>
-        /// The binding expression which represents the binding instance on this object.
+        /// A <see cref="BindingExpressionBase"/> that represents the active binding. Dispose this to remove the binding.
         /// </returns>
+        /// <remarks>
+        /// <para>
+        /// This method creates a binding that continuously updates the property as the binding source changes.
+        /// The binding remains active until the returned expression is disposed or the object is garbage collected.
+        /// </para>
+        /// <para>
+        /// The <paramref name="binding"/> determines the priority, mode (one-way, two-way, etc.), and other
+        /// binding characteristics. For styled properties, the binding value competes with other value sources
+        /// according to its priority.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> or <paramref name="binding"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="NotSupportedException">
+        /// Thrown if <paramref name="binding"/> is not a supported <see cref="IBinding"/> implementation.
+        /// </exception>
         public BindingExpressionBase Bind(AvaloniaProperty property, IBinding binding)
         {
             return Bind(property, binding, null);
         }
 
         /// <summary>
-        /// Binds a <see cref="AvaloniaProperty"/> to an observable.
+        /// Binds an <see cref="AvaloniaProperty"/> to an observable sequence of values.
         /// </summary>
-        /// <param name="property">The property.</param>
-        /// <param name="source">The observable.</param>
-        /// <param name="priority">The priority of the binding.</param>
+        /// <param name="property">
+        /// The target property to bind. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="source">
+        /// An observable that produces values for the property. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="priority">
+        /// The priority at which to bind the values. Must be between <see cref="BindingPriority.Animation"/>
+        /// and <see cref="BindingPriority.LocalValue"/>. Defaults to <see cref="BindingPriority.LocalValue"/>.
+        /// </param>
         /// <returns>
-        /// A disposable which can be used to terminate the binding.
+        /// An <see cref="IDisposable"/> that, when disposed, terminates the binding subscription.
         /// </returns>
+        /// <remarks>
+        /// <para>
+        /// This method subscribes to the observable and updates the property with each emitted value.
+        /// The binding is active until disposed. If the observable completes or errors, the binding
+        /// remains at the last successfully emitted value.
+        /// </para>
+        /// <para>
+        /// For styled properties, bound values at different priorities can coexist. For direct properties,
+        /// the priority parameter is ignored.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="property"/> or <paramref name="source"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown if <paramref name="property"/> is a read-only direct property, or if <paramref name="priority"/>
+        /// is outside the valid range.
+        /// </exception>
         public IDisposable Bind(
             AvaloniaProperty property,
             IObservable<object?> source,
