@@ -11,11 +11,20 @@ namespace Avalonia
     public static class AvaloniaObjectExtensions
     {
         /// <summary>
-        /// Converts an <see cref="IObservable{T}"/> to an <see cref="IBinding"/>.
+        /// Converts an observable sequence to an <see cref="IBinding"/> that can be applied to Avalonia properties.
         /// </summary>
-        /// <typeparam name="T">The type produced by the observable.</typeparam>
-        /// <param name="source">The observable</param>
-        /// <returns>An <see cref="IBinding"/>.</returns>
+        /// <typeparam name="T">The type of values produced by the observable.</typeparam>
+        /// <param name="source">
+        /// The observable sequence that will provide values for the binding. Must not be <see langword="null"/>.
+        /// </param>
+        /// <returns>
+        /// An <see cref="IBinding"/> that subscribes to <paramref name="source"/> and updates the target
+        /// property with each emitted value.
+        /// </returns>
+        /// <remarks>
+        /// This enables observable-based reactive programming patterns with Avalonia's binding system.
+        /// The binding is one-way from the observable to the property.
+        /// </remarks>
         public static IBinding ToBinding<T>(this IObservable<T> source)
         {
             return new BindingAdaptor(
@@ -25,17 +34,32 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets an observable for an <see cref="AvaloniaProperty"/>.
+        /// Creates an observable that tracks changes to an <see cref="AvaloniaProperty"/> on an object.
         /// </summary>
-        /// <param name="o">The object.</param>
-        /// <param name="property">The property.</param>
+        /// <param name="o">
+        /// The object to observe. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="property">
+        /// The property to track. Must not be <see langword="null"/>.
+        /// </param>
         /// <returns>
-        /// An observable which fires immediately with the current value of the property on the
-        /// object and subsequently each time the property value changes.
+        /// An observable that immediately emits the current effective value of <paramref name="property"/>
+        /// on <paramref name="o"/>, then emits each new effective value whenever the property changes.
         /// </returns>
         /// <remarks>
-        /// The subscription to <paramref name="o"/> is created using a weak reference.
+        /// <para>
+        /// The subscription to <paramref name="o"/> uses a weak reference, allowing the object to be
+        /// garbage collected even if the observable subscription is not disposed. The observable will
+        /// complete when the target object is collected.
+        /// </para>
+        /// <para>
+        /// For better type safety and to avoid boxing with value types, use the generic overload
+        /// <see cref="GetObservable{T}(AvaloniaObject, AvaloniaProperty{T})"/>.
+        /// </para>
         /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="o"/> or <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
         public static IObservable<object?> GetObservable(this AvaloniaObject o, AvaloniaProperty property)
         {
             return new AvaloniaPropertyObservable<object?, object?>(
@@ -44,18 +68,27 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets an observable for an <see cref="AvaloniaProperty"/>.
+        /// Creates a strongly-typed observable that tracks changes to an <see cref="AvaloniaProperty{T}"/> on an object.
         /// </summary>
-        /// <param name="o">The object.</param>
-        /// <typeparam name="T">The property type.</typeparam>
-        /// <param name="property">The property.</param>
+        /// <typeparam name="T">The property value type.</typeparam>
+        /// <param name="o">
+        /// The object to observe. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="property">
+        /// The property to track. Must not be <see langword="null"/>.
+        /// </param>
         /// <returns>
-        /// An observable which fires immediately with the current value of the property on the
-        /// object and subsequently each time the property value changes.
+        /// An observable that immediately emits the current effective value of <paramref name="property"/>
+        /// on <paramref name="o"/>, then emits each new effective value whenever the property changes.
         /// </returns>
         /// <remarks>
-        /// The subscription to <paramref name="o"/> is created using a weak reference.
+        /// The subscription to <paramref name="o"/> uses a weak reference, allowing the object to be
+        /// garbage collected even if the observable subscription is not disposed. The observable will
+        /// complete when the target object is collected.
         /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="o"/> or <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
         public static IObservable<T> GetObservable<T>(this AvaloniaObject o, AvaloniaProperty<T> property)
         {
             return new AvaloniaPropertyObservable<T, T>(
@@ -63,12 +96,30 @@ namespace Avalonia
                 property ?? throw new ArgumentNullException(nameof(property)));
         }
 
-        /// <inheritdoc cref="GetObservable{T}(AvaloniaObject, AvaloniaProperty{T})"/>
-        /// <typeparam name="TSource">The type of the values held by the <paramref name="property"/>.</typeparam>
-        /// <typeparam name="TResult">The type of the value returned by the <paramref name="converter"/>.</typeparam>
-        /// <param name="o"/>
-        /// <param name="property"/>
-        /// <param name="converter">A method which is executed to convert each property value to <typeparamref name="TResult"/>.</param>
+        /// <summary>
+        /// Creates an observable that tracks changes to a property and converts each value with a function.
+        /// </summary>
+        /// <typeparam name="TSource">The type of values held by the property.</typeparam>
+        /// <typeparam name="TResult">The type of values produced by the converter.</typeparam>
+        /// <param name="o">
+        /// The object to observe. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="property">
+        /// The property to track. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="converter">
+        /// A function that converts each property value to <typeparamref name="TResult"/>. Must not be <see langword="null"/>.
+        /// </param>
+        /// <returns>
+        /// An observable that immediately emits the current property value converted by <paramref name="converter"/>,
+        /// then emits each subsequent converted value whenever the property changes.
+        /// </returns>
+        /// <remarks>
+        /// The subscription uses a weak reference to the target object.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="o"/>, <paramref name="property"/>, or <paramref name="converter"/> is <see langword="null"/>.
+        /// </exception>
         public static IObservable<TResult> GetObservable<TSource, TResult>(this AvaloniaObject o, AvaloniaProperty<TSource> property, Func<TSource, TResult> converter)
         {
             return new AvaloniaPropertyObservable<TSource, TResult>(
@@ -77,7 +128,29 @@ namespace Avalonia
                 converter ?? throw new ArgumentNullException(nameof(converter)));
         }
 
-        /// <inheritdoc cref="GetObservable{TSource,TResult}"/>
+        /// <summary>
+        /// Creates an observable that tracks changes to a property and converts each value with a function.
+        /// </summary>
+        /// <typeparam name="TResult">The type of values produced by the converter.</typeparam>
+        /// <param name="o">
+        /// The object to observe. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="property">
+        /// The property to track. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="converter">
+        /// A function that converts each property value to <typeparamref name="TResult"/>. Must not be <see langword="null"/>.
+        /// </param>
+        /// <returns>
+        /// An observable that immediately emits the current property value converted by <paramref name="converter"/>,
+        /// then emits each subsequent converted value whenever the property changes.
+        /// </returns>
+        /// <remarks>
+        /// The subscription uses a weak reference to the target object.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="o"/>, <paramref name="property"/>, or <paramref name="converter"/> is <see langword="null"/>.
+        /// </exception>
         public static IObservable<TResult> GetObservable<TResult>(this AvaloniaObject o, AvaloniaProperty property, Func<object?, TResult> converter)
         {
             return new AvaloniaPropertyObservable<object?, TResult>(
@@ -155,16 +228,34 @@ namespace Avalonia
         }
 
         /// <summary>
-        /// Gets an observable that listens for property changed events for an
-        /// <see cref="AvaloniaProperty"/>.
+        /// Creates an observable that emits <see cref="AvaloniaPropertyChangedEventArgs"/> whenever
+        /// the specified property changes on an object.
         /// </summary>
-        /// <param name="o">The object.</param>
-        /// <param name="property">The property.</param>
+        /// <param name="o">
+        /// The object to observe. Must not be <see langword="null"/>.
+        /// </param>
+        /// <param name="property">
+        /// The property to track. Must not be <see langword="null"/>.
+        /// </param>
         /// <returns>
-        /// An observable which when subscribed pushes the property changed event args
-        /// each time a <see cref="AvaloniaObject.PropertyChanged"/> event is raised
-        /// for the specified property.
+        /// An observable that emits the <see cref="AvaloniaPropertyChangedEventArgs"/> each time
+        /// <see cref="AvaloniaObject.PropertyChanged"/> is raised for <paramref name="property"/>
+        /// on <paramref name="o"/>.
         /// </returns>
+        /// <remarks>
+        /// <para>
+        /// Unlike <see cref="GetObservable(AvaloniaObject, AvaloniaProperty)"/>, which emits property values,
+        /// this method emits the full change event arguments, providing access to both old and new values,
+        /// priority information, and whether the change is an effective value change.
+        /// </para>
+        /// <para>
+        /// This observable does not emit the current value immediately; it only emits when the property
+        /// changes after subscription.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown if <paramref name="o"/> or <paramref name="property"/> is <see langword="null"/>.
+        /// </exception>
         public static IObservable<AvaloniaPropertyChangedEventArgs> GetPropertyChangedObservable(
             this AvaloniaObject o,
             AvaloniaProperty property)
